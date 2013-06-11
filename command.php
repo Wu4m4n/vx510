@@ -1,11 +1,15 @@
 <?
-
+#header( 'Content-type: text/html; charset=utf-8' );
 /*
 En el caso que no muestre nada, es posible que no se tengan los permisos suficientes.
 chmod 777 al archivo y al ttyUSBx, como root.
 
 */
-ob_implicit_flush();
+#ini_set("zlib.output_compression", 0);  // off
+#ini_set("implicit_flush", 1);  // on 
+
+ob_implicit_flush(1);
+#ignore_user_abort(true);
 error_reporting(E_ALL);
 ini_set('display_errors', '1');     //displays php errors
 
@@ -27,12 +31,21 @@ $CodigosDeRespuestas = array(
 			'NO_EXISTE_VENTA' => '11',
 			'TRANSACCION_NO_SOPORTADA' => '12',
 			'DEBE_EJECUTAR_CIERRE' => '13',
-			'PARA_ESTA_TARJETA_MODO_INVALIDO' => '18',#ADD
-			'DIGITO_VERIFICADOR_MALO' => '57', #ADD
-			'FECHA_EXPIRADA' => '54',#ADD
+			'ULTIMOS_CUATRO_DIGITOS_INVALIDO' => '17',
+			'PARA_ESTA_TARJETA_MODO_INVALIDO' => '18',
+			'RECHAZADO' => '73', 
+			'DIGITO_VERIFICADOR_MALO' => '57', 
+			'FECHA_EXPIRADA' => '54',
 			'SOLICITANDO_CONFORMAR_MONTO' => '80',
-			'SOLICITANDO_INGRESO_DE_CLAVE' => '81',
-			'ENVIANDO_TARNSACCION_AL_HOST' => '82');
+			'SOLICITANDO_INGRESO_DE_CLAVE' => '81',			#OK
+			'ENVIANDO_TARNSACCION_AL_HOST' => '82',			#OK
+			'DESLICE_LA_TARJETA' => '78',				#OK
+			'CONFIRMAR_MONTO' => '79',				#OK
+			'ENVIO_TX_A_TRANSBANK' => '82');			#OK
+
+
+
+
 
 
 #Verifica el Entorno
@@ -143,7 +156,7 @@ function ComandoHexadecimal($opcion,$venta = false,$monto=false){
 			$comandos = array(
 					'Venta' => array(
 						"INICIO" 	=> "<STX>", 		
-						"DATA"		=> array("0200","|",$monto,"|", rand(0,9) . rand(0,9) . rand(0,9). rand(0,9) . rand(0,9),"1"), 
+						"DATA"		=> array("0200","|",$monto,"|",rand(0,9) . rand(0,9) . rand(0,9). rand(0,9) . rand(0,9),"|","|","|",1), 
 						"FINAL"		=> "<ETX>",
 						"CHECKSUM"	=> "<LCR>")
 			);			
@@ -261,143 +274,230 @@ function hexbin8bits($hexadecimal){
 	return substr("00000000",0,8 - strlen($binario)) . $binario;
 }
 
+
+function force_flush(){ ob_start();ob_end_flush();ob_flush(); }
+
+
 ##################################################################################################################
 
-#$monto = '125632';
-
-$monto = $_POST['monto'];
-#$monto = '50000';
-
-$datosAenviar = ComandoHexadecimal('Venta',true,$monto);
 
 
 
-
-
-
-
-
-
-
-
-
-
-#$ttyUSB = CheckEntorno();
-$html = null;
-$address = "192.168.101.9";
-$service_port = "5000";
-
-/* Create a TCP/IP socket. */
-$socket = socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
-if ($socket === false) {
-    echo "socket_create() failed: reason: " . 
-         socket_strerror(socket_last_error()) . "\n";
-}
-
-$result = socket_connect($socket, $address, $service_port);
-if ($result === false) {
-    echo "socket_connect() failed.\nReason: ($result) " . 
-          socket_strerror(socket_last_error($socket)) . "\n";
-}
-$response = '';
-socket_write($socket, $datosAenviar, strlen($datosAenviar));
-while (true) {
-	$out = socket_read($socket,1);
-   	$response .= $out;
-	#usleep(100000);
-	if(ord($out) == 3){
-		break;
-	}
-}
-
-
-
-
-
-list(	$comando,
-	$codigorespuesta,
-	$codigocomercio,
-	$terminalid,
-	$numerodeboleta,
-	$codigoautorizacion,
-	$monto,
-	$numerocuotas,
-	$montocuotas,
-	$ultimos4ddigitostarjeta,
-	$numerooperacion,
-	$tipotarjeta,
-	$fechacontable,
-	$numerocuenta,
-	$abreviaciontarjeta,
-	$fechatransaccion,
-	$horatransaccion,
-	$empleado,
-	$propina,
-	$fin) = explode("|",$response);
-
-
-$estado = array_search($codigorespuesta, $CodigosDeRespuestas);
-
-
-if($estado != 'APROBADO'){
-	while (true) {
-		socket_write($socket,ParseHexChr("0x06"),strlen(ParseHexChr("0x06")));
-		$out = socket_read($socket,1);
-		if(!empty($out)){
-			break;
-		}
-	}	
-	socket_close($socket);
-	echo $estado;
-	exit();
-}
-
-
-
-while (true) {
-	socket_write($socket,ParseHexChr("0x06"),strlen(ParseHexChr("0x06")));
-	$out = socket_read($socket,1);
-	if(ord($out) == 3){
-		break;
-	}
-}
-socket_close($socket);
-
-list(	$comando,
-	$codigorespuesta,
-	$codigocomercio,
-	$terminalid,
-	$numerodeboleta,
-	$codigoautorizacion,
-	$monto,
-	$numerocuotas,
-	$montocuotas,
-	$ultimos4ddigitostarjeta,
-	$numerooperacion,
-	$tipotarjeta,
-	$fechacontable,
-	$numerocuenta,
-	$abreviaciontarjeta,
-	$fechatransaccion,
-	$horatransaccion,
-	$empleado,
-	$propina,
-	$fin) = explode("|",$response);
-
-
-$html .= 'Codigo Respuesta : '.$codigorespuesta."<br />";
-$html .= 'Codigo Comercio : '.$codigocomercio."<br />";
-$html .= 'Terminal ID : '.$terminalid."<br />";
-$html .= 'Numero Ticket/Boleta : '.$numerodeboleta."<br />";
-$html .= 'Codigo Autorizacion : '.$codigoautorizacion."<br />";
-$html .= 'Valor Venta : '.$monto."<br />";
-$html .= 'Cantidad De Cuotas :'.$numerocuotas."<br />";
-$html .= 'Valor Cuota : '.$montocuotas."<br />";
-$html .= 'Ultimo Cuadro Digitos : '.$ultimos4ddigitostarjeta."<br />";
-$html .= 'Numero Operacion : '.$numerooperacion."<br />";
-$html .= 'Tipo Tarjeta : '.$tipotarjeta."<br />";
-
-echo $html;
 
 
 ?>
+
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Mirax</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+    <!-- Le styles -->
+    <link href="bootstrap/css/bootstrap.css" rel="stylesheet">
+    <script src="bootstrap/js/jquery.1.9.1.js"></script>
+    <style type="text/css">
+      body {
+        padding-top: 60px;
+        padding-bottom: 40px;
+      }
+	.control-label {
+	margin-top: 10px;
+	}
+	.controls {
+	margin-top: 10px;
+	}
+    </style>
+    <link href="bootstrap/css/bootstrap-responsive.css" rel="stylesheet">
+   <script type="text/javascript">
+
+   $(function() {
+
+	});
+	</script>
+  </head>
+
+  <body>
+
+<div class="container">
+
+      <!-- Main hero unit for a primary marketing message or call to action -->
+<h1>POS vx510</h1>
+<!-- Example row of columns -->
+<div class="row">
+<div class="span4">
+       
+
+<form class="form-horizontal" action="command.php" method="POST" id="FormVenta">
+	<fieldset>
+		<legend>Venta</legend>
+		<div class="control-group">
+			<label class="control-label" for="inputEmail">Monto : </label>
+			<div class="controls">
+				<input name="monto" type="text" id="inputEmail" placeholder="$">
+				<button id="ejecutar" style="margin-top:15px;" type="submit" class="btn pull-right">Ejecutar</button>
+			</div>
+		</div>
+	</fieldset>
+</form>
+
+<p id="resultado" style="display:inline;">
+<?php
+if(!empty($_POST['monto']) && isset($_POST['monto'])){
+
+
+	$monto = $_POST['monto'];
+
+	$datosAenviar = ComandoHexadecimal('Venta',true,$monto);
+
+
+
+
+	$html = null;
+	$address = "192.168.101.9";
+	$service_port = "5000";
+
+	$socket = socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
+	if ($socket === false) {
+	    echo "socket_create() failed: reason: " . 
+		 socket_strerror(socket_last_error()) . "\n";
+	}
+
+	$result = socket_connect($socket, $address, $service_port);
+	if ($result === false) {
+	    echo "socket_connect() failed.\nReason: ($result) " . 
+		  socket_strerror(socket_last_error($socket)) . "\n";
+	}
+	$response = '';
+	socket_write($socket, $datosAenviar, strlen($datosAenviar));
+	$contador = 0;
+	$mensajes = '';
+
+	while (true) {
+		$out = socket_read($socket,1);
+	   	$response .= $out;
+		$mensajes .= $out;
+	 	#print $response."\n";
+		if(ord($out) == 3 && strlen($mensajes) > 1){
+			list($mensaje,$valor,$end) = explode("|",$mensajes);
+			$estado = array_search($valor, $CodigosDeRespuestas);
+
+
+			#echo $estado." \t".$valor."\n";
+			echo $estado."<br />";
+			#VALIDO
+			$validos = array("00");
+			if (in_array($valor, $validos)) {
+					while (true) {
+						socket_write($socket,ParseHexChr("0x06"),strlen(ParseHexChr("0x06")));
+						$out = socket_read($socket,1);
+						#echo "\t".$out."\n";
+						if(ord($out) == 3 || $out === false){
+							list(	$comando,
+								$codigorespuesta,
+								$codigocomercio,
+								$terminalid,
+								$numerodeboleta,
+								$codigoautorizacion,
+								$monto,
+								$numerocuotas,
+								$montocuotas,
+								$ultimos4ddigitostarjeta,
+								$numerooperacion,
+								$tipotarjeta,
+								$fechacontable,
+								$numerocuenta,
+								$abreviaciontarjeta,
+								$fechatransaccion,
+								$horatransaccion,
+								$empleado,
+								$propina,
+								$fin) = explode("|",$mensajes);
+
+							$html = '';
+							$html .= 'Codigo Respuesta : '.$codigorespuesta."<br />";
+							$html .= 'Codigo Comercio : '.$codigocomercio."<br />";
+							$html .= 'Terminal ID : '.$terminalid."<br />";
+							$html .= 'Numero Ticket/Boleta : '.$numerodeboleta."<br />";
+							$html .= 'Codigo Autorizacion : '.$codigoautorizacion."<br />";
+							$html .= 'Valor Venta : '.$monto."<br />";
+							$html .= 'Cantidad De Cuotas :'.$numerocuotas."<br />";
+							$html .= 'Valor Cuota : '.$montocuotas."<br />";
+							$html .= 'Ultimo Cuadro Digitos : '.$ultimos4ddigitostarjeta."<br />";
+							$html .= 'Numero Operacion : '.$numerooperacion."<br />";
+							$html .= 'Tipo Tarjeta : '.$tipotarjeta."<br />";
+
+							echo $html;
+
+							break 2;
+						}
+					}
+
+			}else{
+					#?
+					$valores = array_values($CodigosDeRespuestas);
+					$arr = array_diff($valores, array("00","78","79","81","82"));
+					$invalidos = array_values($arr);
+			
+				
+					if (in_array($valor, $invalidos)) {
+						while (true) {
+							socket_write($socket,ParseHexChr("0x06"),strlen(ParseHexChr("0x06")));
+							$out = socket_read($socket,1);
+							#echo $out."\n";
+							if(!empty($out)){
+								break 2;
+							}
+						}
+
+					}else{
+						#echo "···························\n";
+						#print nl2br($estado."\n");
+			 		#	print $response."\n";
+				#		print $mensajes."\n";
+						#echo "···························\n";
+					}
+
+
+
+			}
+
+			$mensajes = ''; 
+		}else{
+			#$contador++;
+		}
+	force_flush();
+	}
+	socket_close($socket);
+
+}
+?>
+
+</p>
+</div>
+</div>
+
+<hr>
+
+      <footer>
+        <p>&copy; Mirax 2013</p>
+      </footer>
+
+</div> <!-- /container -->
+
+
+
+<?
+
+
+
+
+
+
+?>
+
+  </body>
+</html>
